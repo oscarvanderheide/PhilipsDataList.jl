@@ -2,6 +2,7 @@ module PhilipsDataList
 
 using CSV
 using DataFrames
+using ProgressBars
 
 # Raw data from Philip's MR system is stored as single precision (complex) floats
 const COMPLEX_ELTYPE = ComplexF32

@@ -1,162 +1,80 @@
 """
-    _read_data_file(path::String)
+    _validate_path(path_to_file::String, expected_extension)
 
-Reads a .data file from the specified path and returns all the samples
-as a vector of ComplexF32. Note that it contains both noise samples as well as
-data samples for each coil and requires additional processing
-based on information in the corresponding .list file.
-
-# Arguments
-- `path::String`: The path to the data file.
-
-# Returns
-- `samples::Vector{ComplexF32}`: The noise and data samples read from the data file.
-
-# Errors
-- Throws an error if the file extension is not '.data'.
-- Throws an error if the file cannot be opened or read.
+Check that the extension of `path_to_file` is as expected and that the file at that location is not empty. Throw an error if either of these conditions is not met.
 """
-function _read_data_file(path::String)
+function _validate_path(path_to_file::String, expected_extension::String)
 
-    # Check that extension is .data
-    extension = splitext(path) |> last
+    # Get the extension of the file
+    extension = splitext(path_to_file) |> last
 
-    if extension != ".data"
-        error("Invalid file extension: expected '.data', got '$extension'")
+    # If expected_extension starts with a dot, remove it
+    if startswith(expected_extension, ".")
+        expected_extension = expected_extension[2:end]
+    end
+
+    # Check that extension is as expected
+    if extension != ".$expected_extension"
+        throw(DomainError("Invalid file extension: expected '.data', got '.$expected_extension'"))
     end
 
     # Check that the file is not empty
-    if (filesize(path) == 0)
-        error("File is empty: $path")
+    if (filesize(path_to_file) == 0)
+        throw(DomainError("File is empty: $path_to_file"))
     end
 
-    # Allocate a Vector{COMPLEX_ELTYPE} (= Vector{ComplexF32})
-    # to hold all the acquired samples during the scan
-    num_samples = _num_bytes_to_num_samples(filesize(path))
-    samples = Vector{COMPLEX_ELTYPE}(undef, num_samples)
-
-    # Open the .data file and read in all the samples
-    try
-        println("Reading in samples from .data file")
-        read!(path, samples)
-    catch e
-        error("Failed to read in complex data samples from .data file: $path")
-        rethrow(e)
-    end
-
-    return samples
+    return nothing
 end
 
 """
-    _read_list_file(path::String)
+    _extract_general_info(list_lines::Vector{String})
 
-First, read a .list file into a vector of strings, each representing a line in the .list file.
+Extract the lines that contain "general information" (Philips' words).
 
-The .list file contains (in Philips' words):
-
-1. "general information"
-
-    Examples of general are the maximum kx, ky and kz indices, oversampling factors and the number of channels.
-
-    The general information is found in lines that start with "#" or ".".
-
-2. "attributes" of the "complex data vectors" in the corresponding .data file.
-
-    For example, each "complex data vector" could be a readout and the attributes tell which channel and ky index the readout corresponds to, how many bytes of data it contains and at what offset in the .data file it starts.
-
-    The attributes are found in lines that do *not* start with "#" or ".".
-
-# Arguments
-- `path::String`: The path to the .list file.
-
-# Returns
-- `attributes::DataFrame`: A DataFrame containing the attributes of the "complex data vectors" in the .data file.
-- `general_info::Vector{String}`: A vector of strings, each representing a line with general information contained in the .list file.
-
-
-# Errors
-- Throws an error if the file extension is not .list.
-- Throws an error if the file cannot be opened.
-- Throws an error if general information lines are found.
-- Throws an error if no attributes lines are found.
-
-# Example
-```julia
-attributes, general_info = _read_list_file("/path/to/file.list")
-```
+These lines always start with either '#' or '.'
 """
-function _read_list_file(path::String)
+function _extract_general_info(list_lines::Vector{String})
 
-    # Check that extension is .list
-    extension = splitext(path) |> last
-
-    if extension != ".list"
-        error("Invalid file extension: expected '.list', got '$extension'")
-    end
-
-    # Open the .list file and store each line as a String into a Vector
-    list_lines = try
-        readlines(path)
-    catch e
-        error("Failed to open .list file:\n$path")
-        rethrow(e)
-    end
-
-    # Extract the lines that contain "general information" (Philips' words).
-    # These lines always start with either '#' or '.'
+    # Extract lines that start with "#" or "."
     is_info_line = line -> startswith(line, "#") || startswith(line, ".")
     general_info = filter(is_info_line, list_lines)
 
+    # Throw an error if no general information is found
     if isempty(general_info)
         error("No general information found in .list file")
     end
 
-    # Now extract the "attributes" from the .list file
-    # These are lines that do *not* start with "#" or "."
-    is_attributes_line = line -> !(startswith(line, "#") || startswith(line, "."))
-    attributes = filter(is_attributes_line, list_lines)
-
-    if isempty(attributes)
-        error("No attributes found in .list file")
-    end
-
-    # At this point, the attributes are stored as a vector of strings.
-    # Now convert it to a DataFrame to make it easier to work with the attributes later on
-
-    # Extract the names of the attributes from the .list
-    # file to be used as header in the DataFrame
-    header = _get_attributes_header(general_info)
-
-    attributes = _attributes_lines_to_df(attributes, header)
-
-    return attributes, general_info
+    return general_info
 end
 
 """
-    _attributes_lines_to_df(attributes_lines)
+_extract_attributes(list_lines::Vector{String})
 
-Extracts and stores the attribute lines from a .list file in a DataFrame.
+Extract the attributes for each of the _complex data vectors_ from the .list file.
 
-# Arguments
-- `attributes_lines`: An array of strings representing the lines of a .list file containing attributes of the "complex data vectors".
+The attributes are found in the lines that do *not* start with "#" or ".". The attributes are first read in as a `Vector` of `Strings`. Then, the attributes are converted into a `DataFrame`.
 
-# Returns
-- `attributes_df`: A DataFrame containing the attribute for all of the "complex data vectors" in a .data file.
-
-The function first extracts the attribute names from the list file to be used as the header in the DataFrame.
-Then, it filters out the lines containing the attribute values.
-Next, it cleans up the lines by removing leading whitespace and replacing remaining whitespace with commas.
-After that, it joins the cleaned attribute lines into a single string.
-Finally, it creates a file-like IOBuffer from the string and uses CSV.read() to parse the attributes into a DataFrame.
+## Implementation details
+Using DataFrame() to read the attributes into a DataFrame was not successful because it required parsing all the values to their appropriate types. Instead, we use CSV.read(),
+which takes care of the parsing for us, but it requires a file-like object. We can use IOBuffer to create a file-like object from the attribute lines. The lines need to be cleaned up first through.
 """
-function _attributes_lines_to_df(attributes_lines, attribute_names)
+function _extract_attributes(list_lines)
 
-    # Using DataFrame() to read the attributes into a DataFrame
-    # was not successful because it required parsing all the values
-    # to their appropriate types. Instead, we use CSV.read(),
-    # which takes care of the parsing for us, but it requires a
-    # file-like object. We can use IOBuffer to create a file-like object
-    # from the attribute lines. The lines need to be cleaned up first through.
+    # These are lines that do *not* start with "#" or "."
+    is_attributes_line = line -> !(startswith(line, "#") || startswith(line, "."))
+    attributes_lines = filter(is_attributes_line, list_lines)
+
+    # Throw an error if no attributes are found
+    if isempty(attributes_lines)
+        error("No attributes found in .list file")
+    end
+
+    # The attributes are stored as a Vector{String}.
+    # Now we convert them into a DataFrame.
+
+    # Extract the names of the attributes from the .list
+    # file to be used as header in the DataFrame
+    attribute_names = _get_attributes_header(list_lines)
 
     # Remove leading whitespace from each line
     attributes_lines = lstrip.(attributes_lines, ' ')
@@ -184,21 +102,11 @@ end
 """
     _get_attributes_header(list_lines::Vector{String})
 
-Extracts the names of the "attributes" from the .list file. It searches for the line
-containing "START OF DATA VECTOR INDEX" and extracts the attribute names from
-the line two lines below that. The attribute names are stored as a vector of strings.
+Extracts the names of the "attributes" from the .list file.
+
+It searches for the line containing "START OF DATA VECTOR INDEX" and extracts the attribute names from the line two lines below that. The attribute names are stored as a vector of strings.
 
 The attribute names are intended to be used to create column names of a DataFrame holding the attributes.
-
-# Arguments
-- `list_lines::Vector{String}`: A vector of strings representing the lines in a .list file.
-
-# Returns
-- `attribute_names::Vector{String}`: A vector of strings representing the attribute names.
-
-# Errors
-- Throws an error if the 'START OF DATA VECTOR INDEX' is not found in the list file.
-
 """
 function _get_attributes_header(list_lines::Vector{String})
 
@@ -227,7 +135,7 @@ function _get_attributes_header(list_lines::Vector{String})
 end
 
 """
-    split_attributes_per_type(attributes::DataFrame)
+    _split_attributes_per_type(attributes::DataFrame)
 
 Split the attributes DataFrame into a NamedTuple of DataFrames for each type.
 
@@ -237,7 +145,7 @@ Split the attributes DataFrame into a NamedTuple of DataFrames for each type.
 # Returns
 - `NamedTuple`: A NamedTuple where each field corresponds to a type and contains a DataFrame with the attributes of that type.
 """
-function split_attributes_per_type(attributes)
+function _split_attributes_per_type(attributes)
 
     # Helper function to select rows from `attributes` based on the type
     _filter_type(type) = filter(row -> row.typ .== type, attributes)
@@ -259,20 +167,10 @@ end
 """
     _num_bytes_to_num_samples(bytes::Int)
 
-Converts the number of bytes to the number of samples based on the size of the raw data type (COMPLEX_ELTYPE = ComplexF32).
-
-# Arguments
-- `bytes::Int`: The number of bytes.
-
-# Returns
-The number of samples.
-
-# Errors
-- Throws an error if `bytes` is not divisible by the size of the raw data type.
-
+Converts the number of `bytes` to the number of samples based on the size of the raw data type (`ComplexF32`).
 """
 function _num_bytes_to_num_samples(bytes::Int)
-    # check that the number of bytes is divisible by the size of the raw data type
+    # Check that the number of bytes is divisible by the size of the raw data type
     if bytes % sizeof(COMPLEX_ELTYPE) != 0
         error("bytes is not divisible by sizeof(COMPLEX_ELTYPE), result may not be an integer")
     end
@@ -280,16 +178,9 @@ function _num_bytes_to_num_samples(bytes::Int)
 end
 
 """
-    total_num_samples(type, attributes)
+    total_num_samples(type::Union{Symbol,String}, attributes::DataFrame)
 
-Calculate the total number of samples for a given type from the `:size` column of the `attributes` DataFrame.
-
-# Arguments
-- `type::Union{Symbol,String}`: The type for which to calculate the total number of samples.
-- `attributes::DataFrame`: The DataFrame containing the attributes data.
-
-# Returns
-- `Int`: The total number of samples for the given type.
+Calculate the total number of samples for a given `type` from the `:size` column of the `attributes` DataFrame.
 """
 function _total_num_samples(type::Union{Symbol,String}, attributes::DataFrame)
     # Calculate total number of bytes from the size column of attributes
@@ -299,20 +190,14 @@ function _total_num_samples(type::Union{Symbol,String}, attributes::DataFrame)
 end
 
 """
-    preallocate_samples(attributes::DataFrame)
+    _preallocate_samples(attributes::DataFrame)
 
-For each of the different types of "complex data vectors",
-we will store the samples in a separate array. We will also
-"preallocate" the arrays with `sizehint!` to avoid resizing them
-each time we `append!` new samples. 
-
-# Arguments
-- `attributes::DataFrame`: The DataFrame containing the attributes data.
+For each of the different types of "complex data vectors", we will store the samples in a separate array. We will also "preallocate" the arrays with `sizehint!` to avoid resizing them each time we `append!` new samples.
 
 # Returns
-- `NamedTuple`: A NamedTuple where each field corresponds to a type and contains a preallocated array for the samples of that type.
+- `samples_per_type::NamedTuple`: A NamedTuple where each field corresponds to a type and contains a preallocated array for the samples of that type.
 """
-function preallocate_samples(attributes)
+function _preallocate_samples(attributes::DataFrame)
 
     # Initialize an empty dictionary
     samples_per_type = Dict{Symbol,Any}()
@@ -334,7 +219,7 @@ function preallocate_samples(attributes)
 end
 
 """
-    read_and_store_samples_per_type!(
+    _read_and_store_samples_per_type!(
         samples_per_type::NamedTuple,
         path_to_datafile::String,
         attributes::DataFrame)
@@ -349,18 +234,18 @@ Reads "complex data vectors" from a .data file and stores them in the correspond
 # Returns
 - This function does not return anything. It modifies the `samples_per_type` NamedTuple in-place.
 """
-function read_and_store_samples_per_type!(
+function _read_and_store_samples_per_type!(
     samples_per_type::NamedTuple,
     path_to_datafile::String,
     attributes::DataFrame)
 
     open(path_to_datafile, "r") do datafile
 
-        for row in eachrow(attributes)
+        for row in ProgressBar(eachrow(attributes))
             # Determine size of current "complex data vector" in bytes
             num_bytes_to_read = row.size
             # Read in raw bytes (read uses UInt8 by default)
-            raw_bytes = read(datafile, num_bytes_to_read)
+            raw_bytes = read(datafile, num_bytes_to_read, all=false)
             # Reinterpret as ComplexF32
             complex_samples = reinterpret(COMPLEX_ELTYPE, raw_bytes)
             # Determine type of current "complex data vector"
@@ -380,16 +265,9 @@ end
 """
     _offset_and_size_to_range(offset::Int, size::Int)
 
-The .list file contains `offset` and `size` of each complex data vector in the .data file.
+The .list file contains `offset` and `size` of each complex data vector in the .data file (in bytes).
 This function converts the `offset` and `size` to a range to extract the complex data vector
 from the `samples` vector that is returned by the `read_data_list` function.
-
-# Arguments
-- `offset::Int`: The offset in bytes.
-- `size::Int`: The size in bytes.
-
-# Returns
-A `UnitRange` representing the range of indices corresponding to the offset and size.
 """
 function _offset_and_size_to_range(offset::Int, size::Int)
     start = _num_bytes_to_num_samples(offset) + 1 # correct for 0-based indexing

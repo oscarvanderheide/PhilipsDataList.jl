@@ -1,14 +1,9 @@
 """
     read_data_list(path_to_data_or_list::String)
 
-This function is the main entry point for reading *.{data,list} files from Philips' MR systems. 
+The main entry point for reading *.{data,list} files from Philips' MR systems.
 
-It reads measured samples (ComplexF32) from a .data file and stores them in a NamedTuple where each key corresponds to a type of "complex data vector" and the value is an array of samples of that type. 
-
-General scan information and attributes of all the "complex data vectors" are read from the list file. The attributes are stored in a DataFrame and also separated by type into a Dict of DataFrames.
-
-# Important
-This function only really reads in the data but does not necessarily put it into a useful format for further processing. For that, users should implement their own routines that make use of the data, attributes and general info returned by this function.
+This function only really _reads_ in the data but does not sort it into, for example, k-spaces.
 
 # Arguments
 - `path_to_data_or_list::String`: The path to the data and list files (without extension).
@@ -30,13 +25,53 @@ function read_data_list(path_to_data_or_list::String)
     attributes, info = _read_list_file("$path.list")
 
     # Preallocate arrays for samples of different types and store them in a NamedTuple
-    samples_per_type = preallocate_samples(attributes)
+    samples_per_type = _preallocate_samples(attributes)
 
     # Read in samples from .data file and store them in the pre-allocated arrays
-    read_and_store_samples_per_type!(samples_per_type, "$path.data", attributes)
+    _read_and_store_samples_per_type!(samples_per_type, "$path.data", attributes)
 
     # Split the attributes DataFrame into a DataFrame for each type
-    attributes_per_type = split_attributes_per_type(attributes)
+    attributes_per_type = _split_attributes_per_type(attributes)
 
     return samples_per_type, attributes_per_type, info
+end
+
+"""
+    _read_list_file(path_to_list_file::String)
+
+First, read a .list file into a vector of strings, each representing a line in the .list file.
+
+The .list file contains (in Philips' words):
+
+1. "general information"
+
+    Examples of general are the maximum kx, ky and kz indices, oversampling factors and the number of channels.
+
+    The general information is found in lines that start with "#" or ".".
+
+2. "attributes" of the "complex data vectors" in the corresponding .data file.
+
+    For example, each "complex data vector" could be a readout and the attributes tell which channel and ky index the readout corresponds to, how many bytes of data it contains and at what offset in the .data file it starts.
+
+    The attributes are found in lines that do *not* start with "#" or ".".
+
+# Returns
+- `attributes::DataFrame`: A DataFrame containing the attributes of the "complex data vectors" in the .data file.
+- `general_info::Vector{String}`: A vector of strings, each representing a line with general information contained in the .list file.
+"""
+function _read_list_file(path_to_list_file::String)
+
+    # Validate that the file extension is .list and that the file is not empty
+    _validate_path(path_to_list_file, ".list")
+
+    # Open the .list file and store each line as a String into a Vector
+    list_lines = readlines(path_to_list_file)
+
+    # Extract the lines with general scan information at the start of the list file
+    general_info = _extract_general_info(list_lines)
+
+    # Extract attributes of the "complex data vectors" and store as DataFrame
+    attributes = _extract_attributes(list_lines)
+
+    return attributes, general_info
 end

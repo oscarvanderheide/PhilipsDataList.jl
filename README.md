@@ -13,13 +13,21 @@ add git@gitlab.op.umcutrecht.nl:computational-imaging-lab/philipsdatalist.git
 
 ## Package Functionality
 
-- Only a single function is exported by this package: `read_data_list(path::String)`.
+#### `read_data_list(path::String)`
 - This function reads samples from the .data file. There are a limited number of _complex data vector types_ (e.g. `STD`, `NOI`). For each type, the samples are stored separately in a `Vector{ComplexF32}`. The vectors with samples are stored together in a `NamedTuple` with fieldnames corresponding to the different types (e.g. `STD`, `NOI`).
 - The general scan information is extracted from the .list file and stored as `info::Vector{String}`.
 - The `attributes` of each of the _complex data vectors_ is extracted from the .list file. For each _complex data vector type_ the attributes are stored in a `DataFrame` and the `DataFrames` are stored in a `NamedTuple`.
 - The function returns `samples_per_type`, `attributes_per_type` and `info`.
 
-This package only really _reads_ the .{data,list} files and it does not _process_ (e.g. sort) the data. Writing some general purpose sorting function that returns k-spaces is possible I guess but I don't have a good enough overview of all the different _complex data vector_ attributes at the moment to do so. Besides, such a function would probably be slow and/or be memory-inefficient. Therefore, instead of providing some general purpose data processing routines, users should implement their own routines.
+This package only really _reads_ the .{data,list} files and it does not _process_ (e.g. sort) the data. 
+
+#### `to_kspace(path::String)`
+
+- This function reads in the .{data,list} files using `read_data_list` and then it sorts the samples of type `STD` into a k-space. 
+- The k-space has named dimensions. The dimension names are found in `DIMENSIONS_STD`. By default, dimensions of size 1 are dropped. 
+- The `kspace` array is also an `OffsetArray`.  This allows, for example, the k-space center(s) to be extracted as `kspace[kx=0, ky=0, kz=0]`. After FFT-ing, it make sense to get rid of the offsets.
+- For highly undersampled scans, this approach is memory-inefficient because non-sampled readouts will be stored as zeros.
+
 
 ## Background
 
@@ -64,4 +72,4 @@ The .list file contains the attributes for each of the complex data vectors and 
 ## Todo
 - Store `info` in a `DataFrame` as well.
 - Make a faster version in case all the `STD` samples are contiguous.
-- Add functionality to sort samples into k-spaces.
+

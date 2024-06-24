@@ -3,6 +3,9 @@
 
 Read in the .{data/list} files and store the measured "STD" samples in a k-space.
 
+## Warning
+This function should only be used on data from Cartesian acquisitions. I don't know what exactly happens for non-Cartesian data.
+
 ## Note
 - It is assumed that each readout has the same number of samples.
 - The .data and .list file should have the same name (except for the extension). The `path` is not required to have an extension since this function will append .data and .list to the path to read the respective files.

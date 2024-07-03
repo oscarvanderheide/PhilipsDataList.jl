@@ -239,6 +239,8 @@ function _read_and_store_samples_per_type!(
     path_to_datafile::String,
     attributes::DataFrame)
 
+    @info "Reading in .data file"
+    
     open(path_to_datafile, "r") do datafile
 
         for row in ProgressBar(eachrow(attributes))

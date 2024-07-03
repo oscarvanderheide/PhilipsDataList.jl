@@ -160,6 +160,8 @@ function _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFram
     # Loop over each row of the attributes DataFrame to extract k-space location of each readout
     kx_range = axes(kspace, :kx)
 
+    @info "Sorting data into k-space"
+
     for i in ProgressBar(1:nrow(attributes))
 
         # Extract current readout from measured samples

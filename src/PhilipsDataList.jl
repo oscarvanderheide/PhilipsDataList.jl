@@ -2,6 +2,7 @@ module PhilipsDataList
 
 using CSV
 using DataFrames
+using FFTW
 using NamedDims
 using OffsetArrays
 using ProgressBars

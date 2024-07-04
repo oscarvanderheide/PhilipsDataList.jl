@@ -1,5 +1,5 @@
 """
-    to_kspace(path_to_data_or_list; drop_dims=true)
+    to_kspace(path_to_data_or_list; drop_dims=true, offsetarray=false)
 
 Read in the .{data/list} files and store the measured "STD" samples in a k-space.
 
@@ -9,26 +9,42 @@ This function should only be used on data from Cartesian acquisitions. I don't k
 ## Note
 - It is assumed that each readout has the same number of samples.
 - The .data and .list file should have the same name (except for the extension). The `path` is not required to have an extension since this function will append .data and .list to the path to read the respective files.
-- The k-space is stored as an OffsetArray s.t. we can use the ranges as indices. For example, `kspace[0, 0, 0, ...]` will give the k-space value(s) at the center of k-space.
-- The k-space also has named dimensions (it is a `NamedDimsArray`), which in fact allows us to use the dimension names as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]` will give the k-space value(s) at the center of k-space. 
-- The ordering of the dimensions is the same as in the `DIMENSIONS_STD` constant. If `drop_dims=true`, dimensions of size 1 are dropped.
+- The k-space has named dimensions (it is a `NamedDimsArray`) which allows, for example, to 
+retrieve all samples from a channel with index `i` by indexing with `kspace[chan=i]`.
+- The ordering of the dimensions is the same as in the `DIMENSIONS_STD` constant. However, if `drop_dims=true`, dimensions of size 1 are dropped.
+- If `offsetarray` is `true`, the k-space is stored as an OffsetArray s.t. we can use the ranges contained in the list file as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]` will give the k-space value(s) at the center of k-space.
 """
-function to_kspace(path_to_data_or_list; drop_dims=true)
+function to_kspace(path_to_data_or_list; drop_dims=true,
+    remove_readout_oversampling=false, offsetarray=false)
 
     # Read in the data and list files
-    samples_per_type, attributes_per_type, _ = read_data_list(path_to_data_or_list)
+    samples_per_type, attributes_per_type, general_info = read_data_list(path_to_data_or_list)
 
-    # Get the samples and attributes for the "STD" type
+    # Considered only the measured sampled of type "STD"
     samples = samples_per_type.STD
+
+    # Extract the attributes for the "STD" type samples
     attributes = attributes_per_type.STD
 
     # Sort the data based on the attributes into a k-space
     kspace = _to_kspace(samples, attributes)
 
     # Drop dimensions of size 1
-    if drop_dims
-        kspace = squeeze(kspace)
+    drop_dims && (kspace = squeeze(kspace))
+
+    # Remove readout oversampling
+    if remove_readout_oversampling
+
+        # Get the oversampling factor. TODO: Read from general_info
+        @warn "Readout oversampling factor hardcoded to 2. Must be read in from general_info in the future."
+        oversampling_factor = 2
+
+        # Remove readout oversampling
+        kspace = _remove_readout_oversampling(kspace, oversampling_factor)
     end
+
+    #TODO: Implement option to return kspace as OffsetArray
+
     return kspace
 end
 
@@ -67,6 +83,9 @@ function _to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
     # Fill the k-space with the measured STD samples
     _fill_kspace!(kspace, samples, attributes)
 
+    # From NamedDimsArray{OffsetArray} to NamedDimsArray (OffsetArray not nice with fft)
+    kspace = NamedDimsArray(parent(parent(kspace)), dimnames(kspace))
+
     return kspace
 end
 
@@ -82,35 +101,11 @@ end
 """
     _calculate_kspace_dimension_ranges(attributes::DataFrame)
 
-Calculate range for each k-space dimension and store in a NamedTuple
+Calculate range for each k-space dimension, including handling the special case for the kx dimension, which is assumed to be the same for all readouts, and store in a NamedTuple.
 """
 function _calculate_kspace_dimension_ranges(attributes::DataFrame)
-    NamedTuple{DIMENSIONS_STD}(
-        _calculate_range(dim, attributes) for dim in DIMENSIONS_STD
-    )
-end
 
-"""
-    _calculate_range(dimension::Symbol, attributes::DataFrame) 
-
-Calculate range for a single k-space dimension
-"""
-function _calculate_range(dimension::Symbol, attributes::DataFrame)
-
-    # Special case for kx
-    dimension == :kx && (return _calculate_range_kx(attributes))
-
-    # Get the range of the specified dimension
-    minimum(attributes[!, dimension]):maximum(attributes[!, dimension])
-
-end
-
-"""
-    _calculate_range_kx(attributes::DataFrame)
-
-Calculate range for the kx dimension which is assumed to be the same for all readouts.
-"""
-function _calculate_range_kx(attributes::DataFrame)
+    # Calculate range for the special case kx first
 
     # Get the size in bytes of a readout
     size_readout = attributes[begin, :size]
@@ -118,7 +113,24 @@ function _calculate_range_kx(attributes::DataFrame)
     # Convert to number of samples per readout
     samples_per_readout = _num_bytes_to_num_samples(size_readout)
 
-    return -(samples_per_readout ÷ 2):((samples_per_readout÷2)-1)
+    # Calculate range for kx
+    range_kx = -(samples_per_readout ÷ 2):((samples_per_readout÷2)-1)
+
+    # Helper function to calculate range for any dimension
+    _calculate_range(dim) = begin
+        if dim == :kx
+            return range_kx
+        else
+            range_min = minimum(attributes[!, dim])
+            range_max = maximum(attributes[!, dim])
+            return range_min:range_max
+        end
+    end
+
+    # Calculate range for all dimensions and store in a NamedTuple
+    NamedTuple{DIMENSIONS_STD}(
+        _calculate_range(dim) for dim in DIMENSIONS_STD
+    )
 end
 
 """
@@ -131,7 +143,6 @@ function _allocate_kspace(ranges::NamedTuple{DIMENSIONS_STD})
     # From ranges, calculate sizes
     sizes = [length(range) for range in values(ranges)]
 
-    @show sizes
     # Allocate k-space
     kspace = zeros(ComplexF32, sizes...)
 
@@ -151,7 +162,7 @@ Fill `k-space` with measured `samples` with the k-space locations extracted from
 """
 function _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFrame)
 
-    # Reshape samples into a matrix
+    # Reshape samples into a matrix with dimensions (kx, readouts)
     samples = reshape(samples, size(kspace, :kx), :)
 
     # Validate that num readouts in data is the same as num readouts in attributes
@@ -180,7 +191,7 @@ end
 """
     _get_kspace_idx(attributes::DataFrame, i::Int)
 
-Get index in k-space for a given readout
+Get index in k-space for the `i`-th readout.
 """
 function _get_kspace_idx(attributes::DataFrame, i::Int)
     CartesianIndex(Tuple(attributes[i, dim] for dim in DIMENSIONS_STD if dim != :kx))
@@ -192,3 +203,123 @@ end
 Drop dimensions of size 1 from an array `x`.
 """
 squeeze(x::AbstractArray) = dropdims(x; dims=tuple(findall(size(x) .== 1)...))
+
+"""
+    _extract_readout_oversampling_factor(general_info::Vector{String})
+
+Retrieve the readout oversampling factor from the part of the list file that looks like this:
+
+"# mix  echo n.a.  k-space oversample factors           value"
+"# ---- ---- ----  ----------------------------------   ---------"
+".    0    0    0  kx_oversample_factor               :    2.0000"
+"""
+function _extract_readout_oversampling_factor(general_info::Vector{String})
+
+    # Iterate over the lines in the general_info
+    for line in general_info
+        # Check if the string contains "kx_oversample_factor"
+        if occursin("kx_oversample_factor", line)
+            # Use a regex to find the floating point number in the string
+            m = match(r"(\d+\.\d+)", line)
+            # If a match was found, convert it to a float and then to an integer
+            if m !== nothing
+                # Read as floating point number
+                oversampling_factor = parse(Float64, only(m))
+                # Check that it is actually an integer
+                @assert oversampling_factor ≈ round(oversampling_factor)
+                # Convert to integer
+                oversampling_factor = round(Int, oversampling_factor)
+
+                return oversampling_factor
+            else
+                error("Could not find a floating point number in the string: $str")
+            end
+            # Exit the loop once the number is found
+            break
+        end
+    end
+
+    error("Could not find the kx_oversample_factor in the general_info")
+end
+
+"""
+    _remove_readout_oversampling(kspace::NamedDimsArray, oversampling_factor::Int)
+
+Remove readout oversampling from data by fft-ing and cropping.
+
+## Note:
+- The `kx` dimension is assumed to be the first dimension. 
+- It is also assumed no partial Fourier technique is applied (in the readout direction). 
+- The `kspace` is assumed to be an `OffsetArray` with named dimensions. 
+- Before applying the fft, the offsets are actually removed because the offsets will cause unwanted phases when applying the fft. After cropping and fft-ing back, offsets are added back.
+"""
+function _remove_readout_oversampling(kspace::NamedDimsArray, oversampling_factor::Int)
+
+    # Get current number of samples in readout direction
+    n = size(kspace, :kx)
+
+    # New kx_max index afte croppin
+    kx_max = n ÷ (2 * oversampling_factor)
+
+    # Store dimnames to add them later again
+    kspace_dimnames = dimnames(kspace)
+
+    # Store axes to add them later again
+    kspace_axes = axes(kspace)
+
+    # Get parent data array without dimension names and offsets
+    kspace = _remove_custom_indices_keep_nameddims(kspace)
+
+    # fft to data along readout direction
+    tmp = ifftshift(ifft(kspace, :kx), :kx∿) # Made possible by NamedDims
+
+    # Rename fft turns :kx into :kx∿, rename to :x here
+    tmp = NamedDims.rename(tmp, :kx∿ => :x)
+
+    # Determine central region that is kept (no offsets here)
+    central_region = ((n÷2)-(kx_max)+1):((n÷2)+(kx_max))
+
+    # Crop the data in the `x` domain
+    # tmp = tmp[central_region, fill(:, ndims(kspace)-1)...]
+    tmp = tmp[x=central_region]
+
+    # ifft back to `kx` domain
+    kspace = fft(fftshift(tmp, :x), :x)
+
+    # Rename :x∿ to :kx
+    kspace = NamedDims.rename(kspace, :x∿ => :kx)
+
+    # Calculate new kx range (taking into account offset)
+    kx_range = -kx_max:(kx_max-1)
+
+    # Add offsets and dimension names
+    kspace = OffsetArray(kspace, kx_range, kspace_axes[2:end]...)
+
+    return kspace
+end
+
+"""
+    _remove_custom_indices_keep_nameddims(kspace)
+
+Remove the custom indices from the k-space array while preserving the named dimensions.
+"""
+function _remove_custom_indices_keep_nameddims(kspace)
+
+    # Check if kspace is a NamedDimsArray wrapped around an OffsetArray or vice versa
+    if kspace isa NamedDimsArray && parent(kspace) isa OffsetArray
+        # NamedDimsArray wrapping an OffsetArray
+        kspace_dimnames = dimnames(kspace)
+        kspace = parent(parent(kspace))  # Get the raw array without offsets and names
+    elseif kspace isa OffsetArray && parent(kspace) isa NamedDimsArray
+        # OffsetArray wrapping a NamedDimsArray
+        kspace_dimnames = dimnames(parent(kspace))
+        kspace = parent(parent(kspace))  # Get the raw array without offsets and names
+    else
+        throw(ArgumentError("kspace must be a NamedDimsArray wrapping an OffsetArray or vice versa"))
+    end
+
+    # Reconstruct the NamedDimsArray with original dimension names
+    kspace = NamedDimsArray(kspace, kspace_dimnames)
+
+    return kspace
+end

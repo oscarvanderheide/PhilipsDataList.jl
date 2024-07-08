@@ -13,6 +13,7 @@ This function should only be used on data from Cartesian acquisitions. I don't k
 retrieve all samples from a channel with index `i` by indexing with `kspace[chan=i]`.
 - The ordering of the dimensions is the same as in the `DIMENSIONS_STD` constant. However, if `drop_dims=true`, dimensions of size 1 are dropped.
 - If `offsetarray` is `true`, the k-space is stored as an OffsetArray s.t. we can use the ranges contained in the list file as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]` will give the k-space value(s) at the center of k-space.
+- If `remove_readout_oversampling` is `true`, the readout oversampling is removed by cropping the k-space and applying an ifft along the readout direction. 
 """
 function to_kspace(path_to_data_or_list; drop_dims=true,
     remove_readout_oversampling=false, offsetarray=false)
@@ -136,7 +137,7 @@ end
 """
     _allocate_kspace(ranges::NamedTuple{DIMENSIONS_STD})
 
-Allocate k-space based on the `ranges` for each dimension in k-space
+Allocate k-space based on the `ranges` for each dimension in k-space. The k-space is stored as an `OffsetArray` s.t. we can use the ranges as indices. The k-space is also wrapped in a `NamedDimsArray` to add dimension names.
 """
 function _allocate_kspace(ranges::NamedTuple{DIMENSIONS_STD})
 
@@ -158,7 +159,7 @@ end
 """
     _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFrame)
 
-Fill `k-space` with measured `samples` with the k-space locations extracted from the `attributes`.
+Fill `k-space` with measured `samples` with the k-space locations extracted from the `attributes`. Because `kspace` is an `OffsetArray`, we can use the ranges obtained from the list file as indices.
 """
 function _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFrame)
 

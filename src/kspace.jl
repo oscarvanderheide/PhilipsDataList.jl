@@ -36,9 +36,8 @@ function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
     # Remove readout oversampling
     if remove_readout_oversampling
 
-        # Get the oversampling factor. TODO: Read from general_info
-        @warn "Readout oversampling factor hardcoded to 2. Must be read in from general_info in the future."
-        oversampling_factor = 2
+        # Get the oversampling factor
+        oversampling_factor = _extract_readout_oversampling_factor(general_info)
 
         # Remove readout oversampling
         kspace = _remove_readout_oversampling(kspace, oversampling_factor)

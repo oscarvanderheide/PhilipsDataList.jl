@@ -31,7 +31,9 @@ function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
     kspace = _samples_to_kspace(samples, attributes)
 
     # Drop dimensions of size 1
-    drop_dims && (kspace = squeeze(kspace))
+    if drop_dims
+        kspace = squeeze(kspace)
+    end
 
     # Remove readout oversampling
     if remove_readout_oversampling

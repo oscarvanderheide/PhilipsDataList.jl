@@ -1,5 +1,5 @@
 """
-    to_kspace(path_to_data_or_list; drop_dims=true, offsetarray=false)
+    data_list_to_kspace(path_to_data_or_list; drop_dims=true, remove_readout_oversampling=false, offset_array=false)
 
 Read in the .{data/list} files and store the measured "STD" samples in a k-space.
 
@@ -15,8 +15,8 @@ retrieve all samples from a channel with index `i` by indexing with `kspace[chan
 - If `offsetarray` is `true`, the k-space is stored as an OffsetArray s.t. we can use the ranges contained in the list file as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]` will give the k-space value(s) at the center of k-space.
 - If `remove_readout_oversampling` is `true`, the readout oversampling is removed by cropping the k-space and applying an ifft along the readout direction. 
 """
-function to_kspace(path_to_data_or_list; drop_dims=true,
-    remove_readout_oversampling=false, offsetarray=false)
+function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
+    remove_readout_oversampling=false, offset_array=false)
 
     # Read in the data and list files
     samples_per_type, attributes_per_type, general_info = read_data_list(path_to_data_or_list)
@@ -28,7 +28,7 @@ function to_kspace(path_to_data_or_list; drop_dims=true,
     attributes = attributes_per_type.STD
 
     # Sort the data based on the attributes into a k-space
-    kspace = _to_kspace(samples, attributes)
+    kspace = _samples_to_kspace(samples, attributes)
 
     # Drop dimensions of size 1
     drop_dims && (kspace = squeeze(kspace))
@@ -50,7 +50,7 @@ function to_kspace(path_to_data_or_list; drop_dims=true,
 end
 
 """
-    _to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
+    _samples_to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
 
 Assemble a k-space as an OffsetArray with named dimensions (with names `DIMENSIONS_STD`) from the measured samples and attributes.
 
@@ -67,7 +67,7 @@ Assemble a k-space as an OffsetArray with named dimensions (with names `DIMENSIO
 - The `kx` dimension is a special case. The `kx` dimension is not stored in the attributes but can be calculated from the size of the readout.
 - The k-space is wrapped in a `NamedDimsArray` to add dimension names.
 """
-function _to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
+function _samples_to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
 
     # Check that all attributes are of type "STD"
     @assert all(attributes[!, :typ] .== "STD")

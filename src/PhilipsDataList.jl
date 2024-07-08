@@ -21,6 +21,6 @@ include("kspace.jl")
 include("utils.jl")
 
 export read_data_list
-export to_kspace
+export data_list_to_kspace
 
 end

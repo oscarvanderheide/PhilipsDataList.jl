@@ -44,7 +44,10 @@ function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
         kspace = _remove_readout_oversampling(kspace, oversampling_factor)
     end
 
-    #TODO: Implement option to return kspace as OffsetArray
+    # Remove custom indices (e.g. axes(kspace, :kx) = -128:127) if `offset_array` is false
+    if !offset_array
+        kspace = _remove_custom_indices_keep_nameddims(kspace)
+    end
 
     return kspace
 end
@@ -83,9 +86,6 @@ function _samples_to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
 
     # Fill the k-space with the measured STD samples
     _fill_kspace!(kspace, samples, attributes)
-
-    # From NamedDimsArray{OffsetArray} to NamedDimsArray (OffsetArray not nice with fft)
-    kspace = NamedDimsArray(parent(parent(kspace)), dimnames(kspace))
 
     return kspace
 end

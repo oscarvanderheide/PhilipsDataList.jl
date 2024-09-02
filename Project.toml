@@ -14,11 +14,11 @@ ProgressBars = "49802e3a-d2f1-5c88-81d8-b72133a6f568"
 [compat]
 julia = "1.10"
 CSV = "0.10"
-DataFrames = "1.6"
-FFTW = "1.8"
-NamedDims = "1.2"
-OffsetArrays = "1.14"
-ProgressBars = "1.5"
+DataFrames = "1"
+FFTW = "1"
+NamedDims = "1"
+OffsetArrays = "1"
+ProgressBars = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

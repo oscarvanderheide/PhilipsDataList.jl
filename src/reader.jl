@@ -9,8 +9,8 @@ This function only really _reads_ in the data but does not sort it into, for exa
 - `path_to_data_or_list::String`: The path to the data and list files (without extension).
 
 # Returns
-- `samples_per_type::NamedTuple`: A NamedTuple with each field being an array of samples corresponding to one of the the types of "complex data vectors" (see `COMPLEX_DATA_VECTOR_TYPES`).
-- `attributes_per_type::NamedTuple`: A NamedTuple with each field being a DataFrame containing attributes corresponding to one of the the types of "complex data vectors" (see `COMPLEX_DATA_VECTOR_TYPES`).
+- `samples_per_type::NamedTuple`: A NamedTuple with each field being an array of samples corresponding to one of the types of "complex data vectors" (see `COMPLEX_DATA_VECTOR_TYPES`).
+- `attributes_per_type::NamedTuple`: A NamedTuple with each field being a DataFrame containing attributes corresponding to one of the types of "complex data vectors" (see `COMPLEX_DATA_VECTOR_TYPES`).
 - `info::Vector{String}`: General information about the scan.
 
 # Notes

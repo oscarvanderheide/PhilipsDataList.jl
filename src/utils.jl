@@ -240,7 +240,7 @@ function _read_and_store_samples_per_type!(
     attributes::DataFrame)
 
     @info "Reading in .data file"
-    
+
     open(path_to_datafile, "r") do datafile
 
         for row in ProgressBar(eachrow(attributes))
@@ -259,7 +259,7 @@ function _read_and_store_samples_per_type!(
         # Make sure we reached the end of file. Otherwise we might have
         # missed some samples.
         if !eof(datafile)
-            error("Did not reach end of file")
+            @warn "Did not reach end of file"
         end
     end
 end

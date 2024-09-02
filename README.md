@@ -21,7 +21,7 @@ add git@gitlab.op.umcutrecht.nl:computational-imaging-lab/philipsdatalist.git
 
 This package only really _reads_ the .{data,list} files and it does not _process_ (e.g. sort) the data. 
 
-#### `to_kspace(path::String)`
+#### `data_list_to_kspace(path::String)`
 
 - This function reads in the .{data,list} files using `read_data_list` and then it sorts the samples of type `STD` into a k-space. 
 - The k-space has named dimensions. The dimension names are found in `DIMENSIONS_STD`. By default, dimensions of size 1 are dropped. 

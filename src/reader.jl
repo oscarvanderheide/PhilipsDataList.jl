@@ -7,6 +7,8 @@ This function only really _reads_ in the data but does not sort it into, for exa
 
 # Arguments
 - `path_to_data_or_list::String`: The path to the data and list files (without extension).
+- `remove_empty_fields::Bool=true`: If true, remove fields for which there are no samples.
+
 
 # Returns
 - `samples_per_type::NamedTuple`: A NamedTuple with each field being an array of samples corresponding to one of the types of "complex data vectors" (see `COMPLEX_DATA_VECTOR_TYPES`).
@@ -16,7 +18,7 @@ This function only really _reads_ in the data but does not sort it into, for exa
 # Notes
 The .data and .list file should have the same name (except for the extension). The `path` is not required to have an extension since this function will append .data and .list to the path to read the respective files.
 """
-function read_data_list(path_to_data_or_list::String)
+function read_data_list(path_to_data_or_list::String; remove_empty_fields::Bool=true)
 
     # Remove extension from path if any
     path, _ = splitext(path_to_data_or_list)
@@ -30,8 +32,13 @@ function read_data_list(path_to_data_or_list::String)
     # Read in samples from .data file and store them in the pre-allocated arrays
     _read_and_store_samples_per_type!(samples_per_type, "$path.data", attributes)
 
-    # Split the attributes DataFrame into a DataFrame for each type
+    # Split the attributes DataFrame into a separate DataFrame for each type
     attributes_per_type = _split_attributes_per_type(attributes)
+
+    # Remove the fields for which there are no samples if requested
+    if remove_empty_fields
+        samples_per_type, attributes_per_type = _remove_empty_fields(samples_per_type, attributes_per_type)
+    end
 
     return samples_per_type, attributes_per_type, info
 end

@@ -277,3 +277,38 @@ function _offset_and_size_to_range(offset::Int, size::Int)
     return start:stop
 end
 
+"""
+    _remove_empty_fields(samples_per_type::NamedTuple, attributes_per_type::NamedTuple)
+
+Remove the fields of both `samples_per_type` and `attributes_per_type` for which there are no samples/rows in the DataFrame.
+"""
+function _remove_empty_fields(samples_per_type::NamedTuple, attributes_per_type::NamedTuple)
+
+    # Check that both NamedTuples have the same fields before filtering
+    @assert propertynames(samples_per_type) == propertynames(attributes_per_type)
+
+    # Create Dicts that will hold the non-empty fields only
+    samples_dict = Dict{Symbol,Any}()
+    attributes_dict = Dict{Symbol,Any}()
+
+    for (key, value) in pairs(samples_per_type)
+        if !isempty(value)
+            samples_dict[key] = value
+        end
+    end
+
+    for (key, value) in pairs(attributes_per_type)
+        if !isempty(value)
+            attributes_dict[key] = value
+        end
+    end
+
+    # Convert dictionaries back to NamedTuples
+    samples_per_type_filtered = NamedTuple(samples_dict)
+    attributes_per_type_filtered = NamedTuple(attributes_dict)
+
+    # Check that both NamedTuples have the same fields after filtering
+    @assert propertynames(samples_per_type_filtered) == propertynames(attributes_per_type_filtered)
+
+    return samples_per_type_filtered, attributes_per_type_filtered
+end

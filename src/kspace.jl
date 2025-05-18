@@ -4,6 +4,10 @@
 
 Read in the .{data/list} files and store the measured "STD" samples in a k-space.
 
+This is the main entry point for converting Philips .data/.list files to a k-space array.
+It handles reading, parsing, and assembling the data, and provides options for dimension
+handling and oversampling removal.
+
 ## Warning
 This function should only be used on data from Cartesian acquisitions. I don't know what
 exactly happens for non-Cartesian data.
@@ -35,6 +39,48 @@ function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
 
     # Extract the attributes for the "STD" type samples
     attributes = attributes_per_type.STD
+
+    kspace = samples_to_kspace(samples, attributes,
+        general_info; drop_dims=drop_dims,
+        remove_readout_oversampling=remove_readout_oversampling,
+        offset_array=offset_array)
+
+    return kspace
+end
+
+"""
+    samples_to_kspace(samples::Vector{ComplexF32},
+    attributes::DataFrame, general_info::Vector{String};
+    drop_dims::Bool=true,
+    remove_readout_oversampling::Bool=false,
+    offset_array::Bool=false)
+
+Lower-level function to assemble a k-space array from raw samples and attributes.
+
+This function is typically called by [`data_list_to_kspace`](@ref). It assumes that
+the input samples and attributes are already filtered for "STD" type and that each
+readout has the same number of samples.
+
+## Arguments
+- `samples`: Vector of complex samples.
+- `attributes`: DataFrame of attributes for each readout.
+- `general_info`: Metadata from the list file.
+- Keyword arguments as in [`data_list_to_kspace`](@ref).
+
+## Returns
+A k-space array as a `NamedDimsArray`.
+
+See [`data_list_to_kspace`](@ref) for general usage.
+
+"""
+function samples_to_kspace(samples::Vector{ComplexF32},
+    attributes::DataFrame, general_info::Vector{String};
+    drop_dims::Bool=true,
+    remove_readout_oversampling::Bool=false,
+    offset_array::Bool=false)
+
+    # Check that all attributes are of type "STD"
+    @assert all(attributes[!, :typ] .== "STD")
 
     # Sort the data based on the attributes into a k-space
     kspace = _samples_to_kspace(samples, attributes)

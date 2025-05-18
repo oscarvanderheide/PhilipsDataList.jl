@@ -1,25 +1,34 @@
 """
-    data_list_to_kspace(path_to_data_or_list; drop_dims=true, remove_readout_oversampling=false, offset_array=false)
+    data_list_to_kspace(path_to_data_or_list; drop_dims=true,
+    remove_readout_oversampling=false, offset_array=false)
 
 Read in the .{data/list} files and store the measured "STD" samples in a k-space.
 
 ## Warning
-This function should only be used on data from Cartesian acquisitions. I don't know what exactly happens for non-Cartesian data.
+This function should only be used on data from Cartesian acquisitions. I don't know what
+exactly happens for non-Cartesian data.
 
 ## Note
 - It is assumed that each readout has the same number of samples.
-- The .data and .list file should have the same name (except for the extension). The `path` is not required to have an extension since this function will append .data and .list to the path to read the respective files.
-- The k-space has named dimensions (it is a `NamedDimsArray`) which allows, for example, to 
+- The .data and .list file should have the same name (except for the extension). The `path`
+  is not required to have an extension since this function will append .data and .list to
+  the path to read the respective files.
+- The k-space has named dimensions (it is a `NamedDimsArray`) which allows, for example, to
 retrieve all samples from a channel with index `i` by indexing with `kspace[chan=i]`.
-- The ordering of the dimensions is the same as in the `DIMENSIONS_STD` constant. However, if `drop_dims=true`, dimensions of size 1 are dropped.
-- If `offsetarray` is `true`, the k-space is stored as an OffsetArray s.t. we can use the ranges contained in the list file as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]` will give the k-space value(s) at the center of k-space.
-- If `remove_readout_oversampling` is `true`, the readout oversampling is removed by cropping the k-space and applying an ifft along the readout direction. 
+- The ordering of the dimensions is the same as in the `DIMENSIONS_STD` constant. However,
+  if `drop_dims=true`, dimensions of size 1 are dropped.
+- If `offsetarray` is `true`, the k-space is stored as an OffsetArray s.t. we can use the
+  ranges contained in the list file as indices. For example, `kspace[kx=0, ky=0, kz=0, ...]`
+  will give the k-space value(s) at the center of k-space.
+- If `remove_readout_oversampling` is `true`, the readout oversampling is removed by
+  cropping the k-space and applying an ifft along the readout direction.
 """
 function data_list_to_kspace(path_to_data_or_list; drop_dims=true,
     remove_readout_oversampling=false, offset_array=false)
 
     # Read in the data and list files
-    samples_per_type, attributes_per_type, general_info = read_data_list(path_to_data_or_list)
+    samples_per_type, attributes_per_type, general_info =
+        read_data_list(path_to_data_or_list)
 
     # Considered only the measured sampled of type "STD"
     samples = samples_per_type.STD
@@ -56,19 +65,23 @@ end
 """
     _samples_to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
 
-Assemble a k-space as an OffsetArray with named dimensions (with names `DIMENSIONS_STD`) from the measured samples and attributes.
+Assemble a k-space as an OffsetArray with named dimensions (with names `DIMENSIONS_STD`)
+from the measured samples and attributes.
 
 ## Note
 - The `attributes` DataFrame should only contain attributes of type "STD".
 - Each readout is assumed to have the same number of samples per readout.
 
 ## Implementation details
-- The k-space will be a high-dimensional array with dimensions `DIMENSIONS_STD`. 
-- The ranges of the k-space dimensions are calculated from the attributes. 
-- From the ranges, the sizes are calculated and then the actual k-space array is allocated. 
+- The k-space will be a high-dimensional array with dimensions `DIMENSIONS_STD`.
+- The ranges of the k-space dimensions are calculated from the attributes.
+- From the ranges, the sizes are calculated and then the actual k-space array is allocated.
 - We use an `OffsetArray` s.t. we can use the ranges as indices.
-- We then loop over each readout (e.g. row of the `attributes` DataFrame) and extract the k-space location of the readout from the attributes. We then store the readout in the k-space at the correct location.
-- The `kx` dimension is a special case. The `kx` dimension is not stored in the attributes but can be calculated from the size of the readout.
+- We then loop over each readout (e.g. row of the `attributes` DataFrame) and extract the
+  k-space location of the readout from the attributes. We then store the readout in the
+  k-space at the correct location.
+- The `kx` dimension is a special case. The `kx` dimension is not stored in the attributes
+  but can be calculated from the size of the readout.
 - The k-space is wrapped in a `NamedDimsArray` to add dimension names.
 """
 function _samples_to_kspace(samples::Vector{ComplexF32}, attributes::DataFrame)
@@ -103,7 +116,8 @@ end
 """
     _calculate_kspace_dimension_ranges(attributes::DataFrame)
 
-Calculate range for each k-space dimension, including handling the special case for the kx dimension, which is assumed to be the same for all readouts, and store in a NamedTuple.
+Calculate range for each k-space dimension, including handling the special case for the kx
+dimension, which is assumed to be the same for all readouts, and store in a NamedTuple.
 """
 function _calculate_kspace_dimension_ranges(attributes::DataFrame)
 
@@ -138,7 +152,9 @@ end
 """
     _allocate_kspace(ranges::NamedTuple{DIMENSIONS_STD})
 
-Allocate k-space based on the `ranges` for each dimension in k-space. The k-space is stored as an `OffsetArray` s.t. we can use the ranges as indices. The k-space is also wrapped in a `NamedDimsArray` to add dimension names.
+Allocate k-space based on the `ranges` for each dimension in k-space. The k-space is stored
+as an `OffsetArray` s.t. we can use the ranges as indices. The k-space is also wrapped in a
+`NamedDimsArray` to add dimension names.
 """
 function _allocate_kspace(ranges::NamedTuple{DIMENSIONS_STD})
 
@@ -160,7 +176,9 @@ end
 """
     _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFrame)
 
-Fill `k-space` with measured `samples` with the k-space locations extracted from the `attributes`. Because `kspace` is an `OffsetArray`, we can use the ranges obtained from the list file as indices.
+Fill `k-space` with measured `samples` with the k-space locations extracted from the
+`attributes`. Because `kspace` is an `OffsetArray`, we can use the ranges obtained from the
+list file as indices.
 """
 function _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFrame)
 
@@ -170,7 +188,8 @@ function _fill_kspace!(kspace, samples::Vector{ComplexF32}, attributes::DataFram
     # Validate that num readouts in data is the same as num readouts in attributes
     @assert nrow(attributes) == size(samples, 2)
 
-    # Loop over each row of the attributes DataFrame to extract k-space location of each readout
+    # Loop over each row of the attributes DataFrame to extract k-space location of each
+    # readout
     kx_range = axes(kspace, :kx)
 
     @info "Sorting data into k-space"
@@ -209,7 +228,8 @@ squeeze(x::AbstractArray) = dropdims(x; dims=tuple(findall(size(x) .== 1)...))
 """
     _extract_readout_oversampling_factor(general_info::Vector{String})
 
-Retrieve the readout oversampling factor from the part of the list file that looks like this:
+Retrieve the readout oversampling factor from the part of the list file that looks like
+this:
 
 "# mix  echo n.a.  k-space oversample factors           value"
 "# ---- ---- ----  ----------------------------------   ---------"
@@ -250,10 +270,12 @@ end
 Remove readout oversampling from data by fft-ing and cropping.
 
 ## Note:
-- The `kx` dimension is assumed to be the first dimension. 
-- It is also assumed no partial Fourier technique is applied (in the readout direction). 
-- The `kspace` is assumed to be an `OffsetArray` with named dimensions. 
-- Before applying the fft, the offsets are actually removed because the offsets will cause unwanted phases when applying the fft. After cropping and fft-ing back, offsets are added back.
+- The `kx` dimension is assumed to be the first dimension.
+- It is also assumed no partial Fourier technique is applied (in the readout direction).
+- The `kspace` is assumed to be an `OffsetArray` with named dimensions.
+- Before applying the fft, the offsets are actually removed because the offsets will cause
+  unwanted phases when applying the fft. After cropping and fft-ing back, offsets are added
+  back.
 """
 function _remove_readout_oversampling(kspace::NamedDimsArray, oversampling_factor::Int)
 
@@ -317,7 +339,8 @@ function _remove_custom_indices_keep_nameddims(kspace)
         kspace_dimnames = dimnames(parent(kspace))
         kspace = parent(parent(kspace))  # Get the raw array without offsets and names
     else
-        throw(ArgumentError("kspace must be a NamedDimsArray wrapping an OffsetArray or vice versa"))
+        throw(ArgumentError("kspace must be a NamedDimsArray wrapping an
+        OffsetArray or vice versa"))
     end
 
     # Reconstruct the NamedDimsArray with original dimension names

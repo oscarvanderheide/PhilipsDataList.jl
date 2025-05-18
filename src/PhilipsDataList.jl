@@ -14,7 +14,8 @@ const COMPLEX_ELTYPE = ComplexF32
 const COMPLEX_DATA_VECTOR_TYPES = ["STD", "REJ", "PHX", "FRX", "NOI", "NAV", "DNA"]
 
 # Dimensions of the data vectors in the .list file
-const DIMENSIONS_STD = (:kx, :ky, :kz, :loca, :chan, :aver, :dyn, :mix, :card, :echo, :extr1, :extr2, :rf, :grad)
+const DIMENSIONS_STD = (:kx, :ky, :kz, :loca, :chan, :aver, :dyn, :mix, :card,
+    :echo, :extr1, :extr2, :rf, :grad)
 
 include("reader.jl")
 include("kspace.jl")

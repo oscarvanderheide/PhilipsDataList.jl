@@ -331,3 +331,284 @@ function _remove_empty_fields(samples_per_type::NamedTuple, attributes_per_type:
 
     return samples_per_type_filtered, attributes_per_type_filtered
 end
+
+function _repair_list_lines(list_lines::Vector{String})
+
+    nchan = _get_num_coil_channels(list_lines)
+    start_idx, end_idx = _get_data_vector_index_bounds(list_lines)
+
+    prefix_lines = list_lines[1:start_idx]
+    index_lines = list_lines[start_idx+1:end_idx-1]
+    suffix_lines = list_lines[end_idx:end]
+
+    repaired_index_lines, did_repair = _repair_data_vector_index_lines(index_lines, nchan)
+
+    if !did_repair
+        return list_lines, false
+    end
+
+    return vcat(prefix_lines, repaired_index_lines, suffix_lines), true
+end
+
+function _write_list_lines(path::String, lines::Vector{String})
+    open(path, "w") do io
+        for (index, line) in enumerate(lines)
+            if index > 1
+                write(io, "\n")
+            end
+            write(io, line)
+        end
+    end
+end
+
+function _repair_list_file_if_needed(path_to_list_file::String, list_lines::Vector{String})
+    _needs_list_repair(list_lines) || return list_lines
+
+    repaired_lines, did_repair = _repair_list_lines(list_lines)
+    did_repair || return list_lines
+
+    backup_path = "$path_to_list_file.corrupt"
+    if isfile(backup_path)
+        error("Backup file already exists: $backup_path")
+    end
+
+    temp_path, temp_io = mktemp(dirname(path_to_list_file))
+    close(temp_io)
+    moved_original = false
+
+    try
+        _write_list_lines(temp_path, repaired_lines)
+        mv(path_to_list_file, backup_path)
+        moved_original = true
+        mv(temp_path, path_to_list_file; force=true)
+    catch
+        isfile(temp_path) && rm(temp_path; force=true)
+        if moved_original && !isfile(path_to_list_file) && isfile(backup_path)
+            mv(backup_path, path_to_list_file; force=true)
+        end
+        rethrow()
+    end
+
+    return repaired_lines
+end
+
+function _needs_list_repair(list_lines::Vector{String})
+    release_major = _try_get_gyroscan_release_major(list_lines)
+    return !isnothing(release_major) && release_major >= 12
+end
+
+function _try_get_gyroscan_release_major(list_lines::Vector{String})
+    for line in list_lines
+        if occursin("Gyroscan SW release", line)
+            match_result = match(r":\s*(\d+)", line)
+            if isnothing(match_result)
+                error("Could not parse Gyroscan SW release from .list file")
+            end
+            return parse(Int, match_result.captures[1])
+        end
+    end
+
+    return nothing
+end
+
+function _get_gyroscan_release_major(list_lines::Vector{String})
+    release_major = _try_get_gyroscan_release_major(list_lines)
+    isnothing(release_major) && error("Could not find Gyroscan SW release in .list file")
+    return release_major
+end
+
+function _get_num_coil_channels(list_lines::Vector{String})
+    for line in list_lines
+        if occursin("number of coil channels", line)
+            match_result = match(r":\s*(\d+)\s*$", line)
+            if isnothing(match_result)
+                error("Could not parse number of coil channels from .list file")
+            end
+            return parse(Int, match_result.captures[1])
+        end
+    end
+    error("Could not find number of coil channels in .list file")
+end
+
+function _get_data_vector_index_bounds(list_lines::Vector{String})
+    start_idx = findfirst(contains("START OF DATA VECTOR INDEX"), list_lines)
+    end_idx = findfirst(contains("END OF DATA VECTOR INDEX"), list_lines)
+
+    if isnothing(start_idx) || isnothing(end_idx) || end_idx <= start_idx
+        error("Could not determine data vector index bounds in .list file")
+    end
+
+    return start_idx, end_idx
+end
+
+function _repair_data_vector_index_lines(index_lines::Vector{String}, nchan::Int)
+
+    entries = [_parse_list_index_line(line) for line in index_lines]
+    repaired_entries = Any[]
+    inserted_bytes = 0
+    did_repair = false
+
+    for i in eachindex(entries)
+        entry = entries[i]
+        entry isa String && push!(repaired_entries, entry)
+        entry isa NamedTuple || continue
+
+        corrected_entry = _shift_offset(entry, inserted_bytes)
+        push!(repaired_entries, corrected_entry)
+
+        next_index = _find_next_entry(entries, i + 1)
+        if isnothing(next_index)
+            continue
+        end
+
+        next_entry = entries[next_index]
+        @assert next_entry isa NamedTuple
+
+        if _should_insert_missing_std_row(corrected_entry, next_entry, nchan)
+            missing_entry = _make_missing_std_row(corrected_entry, next_entry, nchan)
+            push!(repaired_entries, missing_entry)
+            inserted_bytes += missing_entry.size
+            did_repair = true
+        end
+    end
+
+    if !did_repair
+        return index_lines, false
+    end
+
+    return [_format_list_index_entry(entry) for entry in repaired_entries], true
+end
+
+function _parse_list_index_line(line::String)
+    stripped = strip(line)
+    if isempty(stripped) || startswith(stripped, "#") || startswith(stripped, ".")
+        return line
+    end
+
+    fields = split(stripped)
+    if length(fields) != 21
+        error("Unexpected number of columns ($(length(fields))) in data vector index line: $line")
+    end
+
+    numeric = parse.(Int, fields[2:end])
+
+    return (
+        typ=fields[1],
+        mix=numeric[1],
+        dyn=numeric[2],
+        card=numeric[3],
+        echo=numeric[4],
+        loca=numeric[5],
+        chan=numeric[6],
+        extr1=numeric[7],
+        extr2=numeric[8],
+        ky=numeric[9],
+        kz=numeric[10],
+        na=numeric[11],
+        aver=numeric[12],
+        sign=numeric[13],
+        rf=numeric[14],
+        grad=numeric[15],
+        enc=numeric[16],
+        rtop=numeric[17],
+        rr=numeric[18],
+        size=numeric[19],
+        offset=numeric[20],
+    )
+end
+
+function _format_list_index_entry(entry::String)
+    return entry
+end
+
+function _format_list_index_entry(entry::NamedTuple)
+    return lpad(entry.typ, 5) *
+           lpad(string(entry.mix), 6) *
+           lpad(string(entry.dyn), 6) *
+           lpad(string(entry.card), 6) *
+           lpad(string(entry.echo), 6) *
+           lpad(string(entry.loca), 6) *
+           lpad(string(entry.chan), 6) *
+           lpad(string(entry.extr1), 6) *
+           lpad(string(entry.extr2), 6) *
+           lpad(string(entry.ky), 6) *
+           lpad(string(entry.kz), 6) *
+           lpad(string(entry.na), 6) *
+           lpad(string(entry.aver), 6) *
+           lpad(string(entry.sign), 6) *
+           lpad(string(entry.rf), 6) *
+           lpad(string(entry.grad), 6) *
+           lpad(string(entry.enc), 6) *
+           lpad(string(entry.rtop), 6) *
+           lpad(string(entry.rr), 6) *
+           lpad(string(entry.size), 7) *
+           " " * string(entry.offset)
+end
+
+function _find_next_entry(entries::Vector, start_index::Int)
+    for i in start_index:length(entries)
+        entries[i] isa NamedTuple && return i
+    end
+    return nothing
+end
+
+function _shift_offset(entry::NamedTuple, inserted_bytes::Int)
+    return merge(entry, (offset=entry.offset + inserted_bytes,))
+end
+
+function _should_insert_missing_std_row(current::NamedTuple, next::NamedTuple, nchan::Int)
+    current.typ == "STD" || return false
+    next.typ == "STD" || return false
+    expected_next = mod(current.chan + 1, nchan)
+    missing_next = mod(current.chan + 2, nchan)
+
+    if _same_std_group_except_channel(current, next)
+        return next.chan == missing_next && next.chan != expected_next
+    end
+
+    return _is_missing_end_of_std_group(current, next, nchan) ||
+           _is_missing_start_of_std_group(current, next, nchan)
+end
+
+function _same_std_group_except_channel(a::NamedTuple, b::NamedTuple)
+    return a.mix == b.mix &&
+           a.dyn == b.dyn &&
+           a.card == b.card &&
+           a.echo == b.echo &&
+           a.loca == b.loca &&
+           a.extr1 == b.extr1 &&
+           a.extr2 == b.extr2 &&
+           a.ky == b.ky &&
+           a.kz == b.kz &&
+           a.na == b.na &&
+           a.aver == b.aver &&
+           a.sign == b.sign &&
+           a.rf == b.rf &&
+           a.grad == b.grad &&
+           a.enc == b.enc &&
+           a.rtop == b.rtop &&
+           a.rr == b.rr &&
+           a.size == b.size
+end
+
+function _make_missing_std_row(current::NamedTuple, next::NamedTuple, nchan::Int)
+    if _same_std_group_except_channel(current, next)
+        missing_chan = current.chan + 1
+        current.chan < next.chan || (missing_chan = 0)
+        return merge(current, (chan=missing_chan, offset=current.offset + current.size,))
+    elseif _is_missing_end_of_std_group(current, next, nchan)
+        return merge(current, (chan=current.chan + 1, offset=current.offset + current.size,))
+    elseif _is_missing_start_of_std_group(current, next, nchan)
+        return merge(next, (chan=0, offset=current.offset + current.size,))
+    end
+
+    error("Could not reconstruct missing STD row")
+end
+
+function _is_missing_end_of_std_group(current::NamedTuple, next::NamedTuple, nchan::Int)
+    return current.chan == nchan - 2 && next.chan == 0
+end
+
+function _is_missing_start_of_std_group(current::NamedTuple, next::NamedTuple, nchan::Int)
+    return current.chan == nchan - 1 && next.chan == 1
+end

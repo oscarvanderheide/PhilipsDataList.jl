@@ -23,6 +23,10 @@ k-spaces.
 The .data and .list file should have the same name (except for the extension). The `path` is
 not required to have an extension since this function will append .data and .list to the
 path to read the respective files.
+
+For Gyroscan SW release 12 and newer, `.list` files with dropped `STD` rows are repaired
+automatically before parsing. When a repair is applied, the original file is kept as
+`<filename>.list.corrupt`.
 """
 function read_data_list(path_to_data_or_list::String; remove_empty_fields::Bool=true)
 
@@ -47,6 +51,38 @@ function read_data_list(path_to_data_or_list::String; remove_empty_fields::Bool=
     end
 
     return samples_per_type, attributes_per_type, info
+end
+
+"""
+    repair_list_file(path_to_list_file::String)
+
+Repair a Philips `.list` file affected by dropped `STD` rows in the data-vector index.
+
+The repair logic uses the declared number of coil channels from the header and reconstructs
+single missing `STD` rows whenever a channel sequence skips exactly one channel within an
+otherwise unchanged acquisition group. Offsets are corrected globally so that the repaired
+index matches the `.data` file layout.
+
+Files from Gyroscan software releases older than 12, or release 12+ files that do not need
+repair, are returned unchanged.
+
+The original `.list` file is renamed to `<filename>.list.corrupt` and the repaired file is
+written using the original `<filename>.list` path.
+
+# Arguments
+- `path_to_list_file::String`: Path to the corrupted `.list` file.
+
+# Returns
+- `String`: Path to the repaired `.list` file.
+"""
+function repair_list_file(path_to_list_file::String)
+
+    _validate_path(path_to_list_file, ".list")
+
+    lines = readlines(path_to_list_file)
+    _repair_list_file_if_needed(path_to_list_file, lines)
+
+    return path_to_list_file
 end
 
 """
@@ -77,14 +113,18 @@ The .list file contains (in Philips' words):
   vectors" in the .data file.
 - `general_info::Vector{String}`: A vector of strings, each representing a line with general
   information contained in the .list file.
+
+For Gyroscan SW release 12 and newer, corrupted `.list` files with dropped `STD` rows are
+repaired automatically before the attributes are extracted.
 """
 function _read_list_file(path_to_list_file::String)
 
     # Validate that the file extension is .list and that the file is not empty
     _validate_path(path_to_list_file, ".list")
 
-    # Open the .list file and store each line as a String into a Vector
+    # Read the .list file and repair it in-place if Gyroscan 12+ corruption is detected
     list_lines = readlines(path_to_list_file)
+    list_lines = _repair_list_file_if_needed(path_to_list_file, list_lines)
 
     # Extract the lines with general scan information at the start of the list file
     general_info = _extract_general_info(list_lines)

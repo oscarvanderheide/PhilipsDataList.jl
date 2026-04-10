@@ -17,6 +17,7 @@ add PhilipsDataList
 - This function reads samples from the .data file. There are a limited number of _complex data vector types_ (e.g. `STD`, `NOI`). For each type, the samples are stored separately in a `Vector{ComplexF32}`. The vectors with samples are stored together in a `NamedTuple` with fieldnames corresponding to the different types (e.g. `STD`, `NOI`).
 - The general scan information is extracted from the .list file and stored as `info::Vector{String}`.
 - The `attributes` of each of the _complex data vectors_ is extracted from the .list file. For each _complex data vector type_ the attributes are stored in a `DataFrame` and the `DataFrames` are stored in a `NamedTuple`.
+- For Gyroscan SW release 12 and newer, corrupted `.list` files with dropped `STD` rows are repaired automatically during reading. When a repair is applied, the original file is preserved as `<filename>.list.corrupt`.
 - The function returns `samples_per_type`, `attributes_per_type` and `info`.
 
 This package only really _reads_ the .{data,list} files and it does not _process_ (e.g. sort) the data. 
